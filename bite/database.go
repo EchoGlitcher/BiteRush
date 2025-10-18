@@ -7,6 +7,7 @@ import (
 	"biterush/internal"
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	. "github.com/go-jet/jet/v2/mysql"
@@ -18,6 +19,11 @@ import (
 
 type dbOperations struct {
 	db *sql.DB
+}
+
+type OrderHistoryModel struct {
+	model.Orders
+	model.OrderItems
 }
 
 func (d *dbOperations) createUser(ctx context.Context, users *model.Users) (*model.Users, error) {
@@ -240,13 +246,13 @@ func (d *dbOperations) createOrder(ctx context.Context, order *model.Orders) (*m
 	return &orderInfo, nil
 }
 
-func (d *dbOperations) getMenu(ctx context.Context, restaurantId int64) (*model.MenuItems, error) {
+func (d *dbOperations) getMenu(ctx context.Context, restaurantId int64) ([]*model.MenuItems, error) {
 
 	stmt := MenuItems.SELECT(MenuItems.AllColumns).
 		WHERE(MenuItems.RestaurantID.EQ(Int64(restaurantId)))
 	internal.LogStatement(ctx, stmt)
 
-	var menuItems model.MenuItems
+	var menuItems []*model.MenuItems
 	if err := stmt.QueryContext(ctx, d.db, &menuItems); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -254,7 +260,10 @@ func (d *dbOperations) getMenu(ctx context.Context, restaurantId int64) (*model.
 		return nil, err
 	}
 
-	return &menuItems, nil
+	result := make([]*model.MenuItems, len(menuItems))
+	copy(result, menuItems)
+
+	return menuItems, nil
 }
 
 func (d *dbOperations) getRiderByID(ctx context.Context, riderID int64) (*model.Riders, error) {
@@ -323,42 +332,45 @@ func (d *dbOperations) updateRider(ctx context.Context, riderID int64, latitude,
 }
 
 func (d *dbOperations) findRestaurant(ctx context.Context, restaurant *model.Restaurants) ([]*model.Restaurants, error) {
+	// Define search range (~5km)
+	const latRange = 0.045
+	const lngRange = 0.045
 
 	conditions := Restaurants.IsActive.EQ(Bool(true))
+
 	if restaurant.CuisineType != "" {
-		conditions = Restaurants.CuisineType.EQ(String(restaurant.CuisineType))
+		conditions = conditions.AND(Restaurants.CuisineType.EQ(String(restaurant.CuisineType)))
 	}
 
 	if restaurant.Latitude != 0 && restaurant.Longitude != 0 {
-		conditions = Restaurants.Latitude.EQ(Float(restaurant.Latitude)).
-			AND(Restaurants.Longitude.EQ(Float(restaurant.Longitude)))
+		latMin := restaurant.Latitude - latRange
+		latMax := restaurant.Latitude + latRange
+		lngMin := restaurant.Longitude - lngRange
+		lngMax := restaurant.Longitude + lngRange
+
+		conditions = conditions.
+			AND(Restaurants.Latitude.BETWEEN(Float(latMin), Float(latMax))).
+			AND(Restaurants.Longitude.BETWEEN(Float(lngMin), Float(lngMax)))
 	}
 
 	if restaurant.PreparationTime != 0 {
-		conditions = Restaurants.PreparationTime.EQ(Int32(restaurant.PreparationTime))
+		conditions = conditions.AND(Restaurants.PreparationTime.EQ(Int32(restaurant.PreparationTime)))
 	}
 
-	stmt := Restaurants.SELECT(Restaurants.AllColumns).
+	stmt := Restaurants.
+		SELECT(Restaurants.AllColumns).
 		WHERE(conditions)
 	internal.LogStatement(ctx, stmt)
 
 	var restaurants []*model.Restaurants
 	if err := stmt.QueryContext(ctx, d.db, &restaurants); err != nil {
 		if err.Error() == qrm.ErrNoRows.Error() {
-			return nil, err
+			return nil, nil
 		}
 		return nil, err
 	}
 
-	result := make([]*model.Restaurants, len(restaurants))
-	copy(result, restaurants)
-
-	return result, nil
-}
-
-type OrderHistoryModel struct {
-	model.Orders
-	orderItems []*model.OrderItems
+	return restaurants, nil
 }
 
 func (d *dbOperations) listOrders(ctx context.Context, userID, riderID, restaurantID *int64, status *biterush.Status) ([]*biterush.OrderHistory, error) {
@@ -380,22 +392,38 @@ func (d *dbOperations) listOrders(ctx context.Context, userID, riderID, restaura
 
 	join := Orders.LEFT_JOIN(OrderItems, OrderItems.OrderID.EQ(Orders.ID))
 
-	stmt := join.SELECT(Orders.AllColumns).WHERE(condition)
+	stmt := join.SELECT(Orders.AllColumns, OrderItems.AllColumns).WHERE(condition)
 	internal.LogStatement(ctx, stmt)
 
-	var orders []*OrderHistoryModel
-	if err := stmt.QueryContext(ctx, d.db, &orders); err != nil {
+	var rows []OrderHistoryModel
+	if err := stmt.QueryContext(ctx, d.db, &rows); err != nil {
 		if err.Error() == qrm.ErrNoRows.Error() {
 			return nil, err
 		}
+		return nil, err
 	}
-	result := make([]*biterush.OrderHistory, 0, len(orders))
-	for _, o := range orders {
-		orderHistory := &biterush.OrderHistory{
-			Order:      o.Orders,
-			OrderItems: o.orderItems,
+
+	orderMap := make(map[int64]*biterush.OrderHistory)
+	for _, r := range rows {
+		if oh, exists := orderMap[r.Orders.ID]; exists {
+			if r.OrderItems.ID != 0 {
+				oh.OrderItems = append(oh.OrderItems, &r.OrderItems)
+			}
+		} else {
+			oh := &biterush.OrderHistory{
+				Order:      r.Orders,
+				OrderItems: []*model.OrderItems{},
+			}
+			if r.OrderItems.ID != 0 {
+				oh.OrderItems = append(oh.OrderItems, &r.OrderItems)
+			}
+			orderMap[r.Orders.ID] = oh
 		}
-		result = append(result, orderHistory)
+	}
+
+	result := make([]*biterush.OrderHistory, 0, len(orderMap))
+	for _, oh := range orderMap {
+		result = append(result, oh)
 	}
 
 	return result, nil
@@ -406,14 +434,14 @@ func (d *dbOperations) getOrderByID(ctx context.Context, orderID int64) (*model.
 	stmt := Orders.SELECT(Orders.AllColumns).WHERE(Orders.ID.EQ(Int64(orderID)))
 	internal.LogStatement(ctx, stmt)
 
-	var order *model.Orders
-	if err := stmt.QueryContext(ctx, d.db, order); err != nil {
-		if err.Error() == qrm.ErrNoRows.Error() {
+	var order model.Orders
+	if err := stmt.QueryContext(ctx, d.db, &order); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
 			return nil, err
 		}
+		return nil, err
 	}
-
-	return order, nil
+	return &order, nil
 }
 
 func (d *dbOperations) updateOrder(ctx context.Context, order *model.Orders) (*model.Orders, error) {
@@ -440,4 +468,49 @@ func (d *dbOperations) updateOrder(ctx context.Context, order *model.Orders) (*m
 	}
 
 	return d.getOrderByID(ctx, order.ID)
+}
+
+func (d *dbOperations) getRestaurantByID(ctx context.Context, restaurantID int64) (*model.Restaurants, error) {
+
+	stmt := Restaurants.SELECT(STAR).WHERE(Restaurants.ID.EQ(Int64(restaurantID)))
+	internal.LogStatement(ctx, stmt)
+
+	var restaurant model.Restaurants
+	if err := stmt.QueryContext(ctx, d.db, &restaurant); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, err
+		}
+	}
+
+	return &restaurant, nil
+}
+
+func (d *dbOperations) findNearestAvailableRider(ctx context.Context, restaurantLng, restaurantLat float64) ([]*model.Riders, error) {
+
+	stmt := Riders.
+		SELECT(Riders.AllColumns).
+		WHERE(Riders.IsAvailable.IS_TRUE()).
+		ORDER_BY(
+			RawFloat(
+				fmt.Sprintf(
+					"ST_Distance_Sphere(point(%f, %f), point(longitude, latitude))",
+					restaurantLng, restaurantLat,
+				),
+			).ASC(),
+		).
+		LIMIT(5)
+
+	var riders []*model.Riders
+	if err := stmt.QueryContext(ctx, d.db, &riders); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, err
+		}
+		return nil, err
+	}
+
+	if len(riders) == 0 {
+		return nil, fmt.Errorf("no available riders found")
+	}
+
+	return riders, nil
 }

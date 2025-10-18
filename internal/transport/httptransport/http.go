@@ -25,7 +25,7 @@ func AddBiteRoutes(r *mux.Router, ep *endpoint.BiteEndpoint) {
 		kithttp.ServerBefore(kithttp.PopulateRequestContext),
 	))
 
-	r.Methods("PATCH").Path("/riders/{id}/location").Handler(kithttp.NewServer(
+	r.Methods("PUT").Path("/riders/{id}/location").Handler(kithttp.NewServer(
 		ep.UpdateRider,
 		decodeUpdateRiderRequest,
 		kithttp.EncodeJSONResponse,
@@ -36,6 +36,13 @@ func AddBiteRoutes(r *mux.Router, ep *endpoint.BiteEndpoint) {
 	r.Methods("POST").Path("/restaurants").Handler(kithttp.NewServer(
 		ep.CreateRestaurant,
 		decodeCreateRestaurantRequest,
+		kithttp.EncodeJSONResponse,
+		kithttp.ServerBefore(kithttp.PopulateRequestContext),
+	))
+
+	r.Methods("GET").Path("/restaurants").Handler(kithttp.NewServer(
+		ep.FindRestaurant,
+		decodeFindRestaurantsRequest,
 		kithttp.EncodeJSONResponse,
 		kithttp.ServerBefore(kithttp.PopulateRequestContext),
 	))
@@ -55,9 +62,9 @@ func AddBiteRoutes(r *mux.Router, ep *endpoint.BiteEndpoint) {
 		kithttp.ServerBefore(kithttp.PopulateRequestContext),
 	))
 
-	r.Methods("POST").Path("/orders/{id}/accept").Handler(kithttp.NewServer(
-		ep.AcceptOrder,
-		decodeAcceptOrderRequest,
+	r.Methods("PUT").Path("/orders/{id}").Handler(kithttp.NewServer(
+		ep.UpdateOrder,
+		decodeUpdateOrderRequest,
 		kithttp.EncodeJSONResponse,
 		kithttp.ServerBefore(kithttp.PopulateRequestContext),
 	))

@@ -2,7 +2,7 @@
 # 🥡 BiteRush
 
 **BiteRush** is a backend service written in **Go** using **Go-Kit** for service architecture, **Gorilla Mux** for routing, and **Jet ORM** for type-safe SQL.  
-It simulates a basic food-delivery system managing **users**, **riders**, **restaurants**, **menus**, **orders**, and **ratings**.
+It simulates a basic food-delivery system managing **users**, **riders**, **restaurants**, **menus**, **orders**.
 
 ---
 
@@ -32,15 +32,15 @@ It simulates a basic food-delivery system managing **users**, **riders**, **rest
 ---
 
 ## ⚙️ Tech Stack
-- **Language:** Go 1.21+
+- **Language:** Go 1.25+
 - **Frameworks/Libraries:**
   - `go-kit/kit` – service & transport architecture
   - `gorilla/mux` – HTTP routing
   - `go-jet/jet` – SQL builder & ORM
   - `k8s.io/klog/v2` – structured logging
   - `spf13/viper` – configuration management
-- **Database:** MySQL 8.0
-- **Containerization:** Docker + Docker Compose
+- **Database:** MySQL 8.4
+- **Containerization:** Docker + Makefile
 
 ---
 
@@ -71,21 +71,24 @@ biterush/
 ## 🛠️ Setup & Installation
 
 ### 1️⃣ Prerequisites
-- Go 1.25.3 or newer  
-- Docker and Docker Compose  
+- Go 1.25 or newer
+- Docker (for MySQL)
 - Make (optional but recommended)
 
-### 2️⃣ Start MySQL via Docker
+### 2️⃣ Start MySQL using Docker
+Run MySQL 8.4 container:
 ```bash
-make up-db
+docker run -d \
+  --name mysql-biterush \
+  -e MYSQL_ROOT_PASSWORD=root \
+  -e MYSQL_DATABASE=biterush \
+  -p 3306:3306 \
+  mysql:8.4
 ```
-This will:
-- Launch MySQL 8.0 container
-- Apply the schema defined in `schema.sql`
 
 ### 3️⃣ Generate Jet ORM code
 ```bash
-make gen-jet
+make codegen
 ```
 
 ### 4️⃣ Build the application
@@ -114,16 +117,15 @@ http://localhost:8080/biterush
 ## 🌐 Example Routes
 
 | Method | Endpoint | Description |
-|--------|-----------|-------------|
+|--------|---------|-------------|
 | `POST` | `/biterush/users` | Create a new user |
 | `POST` | `/biterush/riders` | Create a new rider |
-| `PATCH` | `/biterush/riders/{id}/location` | Update rider’s location |
+| `PUT` | `/biterush/riders/{id}/location` | Update rider’s location |
 | `POST` | `/biterush/restaurants` | Create a new restaurant |
 | `GET` | `/biterush/restaurants/{id}/menu` | Get restaurant menu |
 | `POST` | `/biterush/orders` | Create new order |
 | `GET` | `/biterush/orders` | List orders (filtered by user/rider/restaurant) |
-| `POST` | `/biterush/orders/{id}/accept` | Accept an order |
-
+| `PUT` | `/biterush/orders/{id}` | Update order status and assign rider |
 ---
 
 ## 🧰 Makefile Commands
@@ -135,9 +137,7 @@ http://localhost:8080/biterush
 | `make build` | Compile app binary |
 | `make dockerbuild` | Build Docker image |
 | `make dockerpush` | Push Docker image |
-| `make up-db` | Start MySQL via docker-compose |
-| `make down-db` | Stop database |
-| `make gen-jet` | Generate Jet ORM models |
+| `make codegen` | Run Jet Code generation and `go mod tidy` |
 
 ---
 

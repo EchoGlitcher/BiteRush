@@ -25,6 +25,11 @@ type RiderRequest struct {
 	Longitude *float64
 }
 
+type UpdateOrderRequest struct {
+	OrderID int64
+	Status  string
+}
+
 func (ep *BiteEndpoint) CreateUser(ctx context.Context, request interface{}) (interface{}, error) {
 	params := request.(*model.Users)
 
@@ -79,13 +84,13 @@ func (ep *BiteEndpoint) ListOrders(ctx context.Context, request interface{}) (in
 	return ep.BiteManager.ListOrders(ctx, params.UserID, params.RiderID, params.RestaurantID, params.Status)
 }
 
-func (ep *BiteEndpoint) AcceptOrder(ctx context.Context, request interface{}) (interface{}, error) {
-	params := request.(int64)
+func (ep *BiteEndpoint) UpdateOrder(ctx context.Context, request interface{}) (interface{}, error) {
+	params := request.(UpdateOrderRequest)
 
 	logger := klog.LoggerWithName(klog.FromContext(ctx), "Accept Order")
 	ctx = klog.NewContext(ctx, logger)
 
-	err := ep.BiteManager.AcceptOrder(ctx, params)
+	err := ep.BiteManager.UpdateOrder(ctx, params.OrderID, params.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -100,4 +105,13 @@ func (ep *BiteEndpoint) UpdateRider(ctx context.Context, request interface{}) (i
 	ctx = klog.NewContext(ctx, logger)
 
 	return ep.BiteManager.UpdateRider(ctx, params.RiderID, params.Latitude, params.Longitude)
+}
+
+func (ep *BiteEndpoint) FindRestaurant(ctx context.Context, request interface{}) (interface{}, error) {
+	params := request.(*model.Restaurants)
+
+	logger := klog.LoggerWithName(klog.FromContext(ctx), "Find restaurant")
+	ctx = klog.NewContext(ctx, logger)
+
+	return ep.BiteManager.FindRestaurant(ctx, params)
 }

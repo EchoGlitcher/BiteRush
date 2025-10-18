@@ -5,6 +5,7 @@ import (
 	"biterush/internal/transport/endpoint"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -35,6 +36,14 @@ func decodeCreateRestaurantRequest(_ context.Context, r *http.Request) (interfac
 	return &req, nil
 }
 
+func decodeFindRestaurantsRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	var req *model.Restaurants
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
 func decodeCreateOrderRequest(_ context.Context, r *http.Request) (interface{}, error) {
 	var req model.Orders
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -52,14 +61,23 @@ func decodeListOrdersRequest(_ context.Context, r *http.Request) (interface{}, e
 	return req, nil
 }
 
-func decodeAcceptOrderRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeUpdateOrderRequest(_ context.Context, r *http.Request) (interface{}, error) {
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 	orderID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	return orderID, nil
+
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		return nil, fmt.Errorf("status query parameter is required")
+	}
+
+	return endpoint.UpdateOrderRequest{
+		OrderID: orderID,
+		Status:  status,
+	}, nil
 }
 
 func decodeUpdateRiderRequest(_ context.Context, r *http.Request) (interface{}, error) {
